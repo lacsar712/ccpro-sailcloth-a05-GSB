@@ -1,7 +1,9 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
-from .models import ClothRoll, DipRun, Loft
-from .rules import can_mark_roll_cured
+from .models import ClothRoll, DipRun, Loft, ResinBand
+from .rules import can_mark_roll_cured, validate_resin_for_loft
 
 
 class LoftSerializer(serializers.ModelSerializer):
@@ -93,3 +95,71 @@ class DipRunSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "rollCode", "loftName", "created_at")
+
+    def validate(self, attrs):
+        # 仅登记（新建）时核对树脂浴浓度带；固化标记/卷态变更不走这里。
+        if self.instance is None:
+            roll = attrs.get("roll")
+            resin_pct = attrs.get("resin_pct")
+            if roll is not None and resin_pct is not None:
+                ok, msg = validate_resin_for_loft(roll.loft, resin_pct)
+                if not ok:
+                    raise serializers.ValidationError({"resinPct": msg})
+        return attrs
+
+
+class ResinBandSerializer(serializers.ModelSerializer):
+    loftId = serializers.PrimaryKeyRelatedField(source="loft", queryset=Loft.objects.all())
+    lowerPct = serializers.DecimalField(
+        source="lower_pct", max_digits=5, decimal_places=2
+    )
+    upperPct = serializers.DecimalField(
+        source="upper_pct", max_digits=5, decimal_places=2
+    )
+    loftName = serializers.CharField(source="loft.name", read_only=True)
+    createdByUsername = serializers.CharField(source="created_by.username", read_only=True)
+
+    class Meta:
+        model = ResinBand
+        fields = (
+            "id",
+            "loftId",
+            "loftName",
+            "lowerPct",
+            "upperPct",
+            "enabled",
+            "createdByUsername",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "loftName", "createdByUsername", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        lower = attrs.get("lower_pct")
+        if lower is None and self.instance is not None:
+            lower = self.instance.lower_pct
+        upper = attrs.get("upper_pct")
+        if upper is None and self.instance is not None:
+            upper = self.instance.upper_pct
+
+        if lower is not None and lower <= Decimal("0"):
+            raise serializers.ValidationError({"lowerPct": "下限百分必须为正数"})
+        if upper is not None and upper <= Decimal("0"):
+            raise serializers.ValidationError({"upperPct": "上限百分必须为正数"})
+        if lower is not None and upper is not None and lower >= upper:
+            raise serializers.ValidationError({"lowerPct": "下限百分必须小于上限百分"})
+
+        loft = attrs.get("loft") or getattr(self.instance, "loft", None)
+        enabled = attrs.get("enabled")
+        if enabled is None:
+            enabled = self.instance.enabled if self.instance is not None else True
+        # 友好预检：同间已有启用带时直接中文拦下；并发竞争仍由数据库唯一约束兜底。
+        if enabled and loft is not None:
+            qs = ResinBand.objects.filter(loft=loft, enabled=True)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"enabled": f"帆布间「{loft.name}」已有启用中的浓度带，同间最多启用一条"}
+                )
+        return attrs

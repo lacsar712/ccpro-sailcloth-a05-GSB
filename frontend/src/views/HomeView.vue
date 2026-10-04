@@ -5,6 +5,7 @@ import api from '../api'
 const lofts = ref([])
 const rolls = ref([])
 const dips = ref([])
+const bands = ref([])
 const error = ref('')
 const panelError = ref('')
 const selectedId = ref(null)
@@ -27,6 +28,15 @@ function localNow() {
 
 const selected = computed(() => rolls.value.find((r) => r.id === selectedId.value) || null)
 
+const selectedBand = computed(() => {
+  if (!selected.value) return null
+  return (
+    bands.value.find(
+      (b) => b.loftId === selected.value.loftId && b.enabled
+    ) || null
+  )
+})
+
 const rollsByLoft = computed(() => {
   return lofts.value.map((loft) => ({
     loft,
@@ -44,14 +54,16 @@ const recentFeed = computed(() => dips.value.slice(0, 12))
 async function load() {
   error.value = ''
   try {
-    const [l, r, d] = await Promise.all([
+    const [l, r, d, b] = await Promise.all([
       api.get('/lofts/'),
       api.get('/rolls/'),
       api.get('/dips/'),
+      api.get('/resin-bands/'),
     ])
     lofts.value = l.data.results || l.data
     rolls.value = r.data.results || r.data
     dips.value = d.data.results || d.data
+    bands.value = b.data.results || b.data
   } catch {
     error.value = '晾晒架加载失败'
   }
@@ -89,6 +101,15 @@ async function setStatus(status) {
   }
 }
 
+function firstDipError(data, fallback) {
+  if (!data) return fallback
+  for (const key of ['resinPct', 'rollId', 'startedAt', 'detail']) {
+    if (Array.isArray(data[key]) && data[key][0]) return data[key][0]
+    if (typeof data[key] === 'string') return data[key]
+  }
+  return JSON.stringify(data)
+}
+
 async function logDip() {
   if (!selected.value) return
   panelError.value = ''
@@ -116,10 +137,7 @@ async function logDip() {
     dipForm.startedAt = localNow()
     await load()
   } catch (e) {
-    panelError.value =
-      e.response?.data?.detail ||
-      JSON.stringify(e.response?.data) ||
-      '登记浸渍失败'
+    panelError.value = firstDipError(e.response?.data, '登记浸渍失败')
   } finally {
     panelBusy.value = false
   }
@@ -242,6 +260,10 @@ onMounted(load)
 
       <form class="drawer-form" @submit.prevent="logDip">
         <h3>登记浸渍</h3>
+        <p v-if="selectedBand" class="band-hint">
+          本间现行浓度带：{{ selectedBand.lowerPct }}% ~ {{ selectedBand.upperPct }}%（含边界）
+        </p>
+        <p v-else class="band-hint band-hint-off">本间当前没有启用的浓度带，登记浸渍会被挡住。</p>
         <label>开始时间
           <input v-model="dipForm.startedAt" type="datetime-local" required />
         </label>

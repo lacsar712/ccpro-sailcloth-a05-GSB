@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import ClothRoll, DipRun, Loft
+from core.models import ClothRoll, DipRun, Loft, ResinBand
 
 User = get_user_model()
 
@@ -43,7 +43,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"worker {'created' if created else 'updated'}"))
 
         if Loft.objects.exists():
-            self.stdout.write("业务数据已存在，跳过业务种子写入。")
+            # 老库可能在本特性上线前已播种：为尚无启用带的帆布间补齐默认带。
+            for loft in Loft.objects.all():
+                _ensure_seed_band(loft, admin, self.stdout)
+            self.stdout.write("业务数据已存在，仅补齐浓度带种子。")
             return
 
         loft = Loft.objects.create(
@@ -54,6 +57,7 @@ class Command(BaseCommand):
         r1 = ClothRoll.objects.create(
             loft=loft, roll_code="R-01", status=ClothRoll.STATUS_DIPPING, fabric_weight_gsm=420
         )
+        # 架上原布一卷
         r2 = ClothRoll.objects.create(
             loft=loft, roll_code="R-02", status=ClothRoll.STATUS_RAW, fabric_weight_gsm=380
         )
@@ -87,9 +91,29 @@ class Command(BaseCommand):
                 ),
             ]
         )
+
+        _ensure_seed_band(loft, admin, self.stdout)
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：帆布间 {Loft.objects.count()}，布卷 {ClothRoll.objects.count()}，"
-                f"浸渍 {DipRun.objects.count()}"
+                f"浸渍 {DipRun.objects.count()}，浓度带 {ResinBand.objects.count()}"
             )
+        )
+
+
+def _ensure_seed_band(loft, admin, stdout):
+    """某间下限 20、上限 30、已启用、配置人 admin。"""
+    band, created = ResinBand.objects.get_or_create(
+        loft=loft,
+        enabled=True,
+        defaults={
+            "lower_pct": Decimal("20.00"),
+            "upper_pct": Decimal("30.00"),
+            "created_by": admin,
+        },
+    )
+    if created:
+        stdout.write(
+            f"已为帆布间「{loft.name}」播种启用浓度带 20%~30%"
         )

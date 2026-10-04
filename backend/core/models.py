@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class Loft(models.Model):
@@ -58,3 +60,34 @@ class DipRun(models.Model):
 
     def __str__(self):
         return f"Dip@{self.roll_id} {self.started_at}"
+
+
+class ResinBand(models.Model):
+    """帆布间现行树脂浴浓度带（按树脂百分比的下限/上限）。"""
+
+    loft = models.ForeignKey(Loft, on_delete=models.CASCADE, related_name="resin_bands")
+    lower_pct = models.DecimalField(max_digits=5, decimal_places=2)
+    upper_pct = models.DecimalField(max_digits=5, decimal_places=2)
+    enabled = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="configured_resin_bands",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["loft_id", "-enabled", "-updated_at"]
+        constraints = [
+            # 同一帆布间启用中的浓度带最多一条（并发也由数据库兜底）
+            models.UniqueConstraint(
+                fields=["loft"],
+                condition=Q(enabled=True),
+                name="uniq_enabled_resin_band_per_loft",
+            )
+        ]
+
+    def __str__(self):
+        state = "启用" if self.enabled else "停用"
+        return f"{self.loft.name} 浓度带 {self.lower_pct}%~{self.upper_pct}%（{state}）"

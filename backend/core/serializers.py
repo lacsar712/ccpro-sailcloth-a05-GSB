@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
-from .models import ClothRoll, DipRun, Loft
-from .rules import can_mark_roll_cured
+from .models import ClothRoll, DipRun, Loft, ResinBand
+from .rules import can_mark_roll_cured, check_resin_pct_in_band
 
 
 class LoftSerializer(serializers.ModelSerializer):
@@ -93,3 +93,49 @@ class DipRunSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = ("id", "rollCode", "loftName", "created_at")
+
+    def validate(self, attrs):
+        # 登记浸渍：树脂百分比必须落在该卷所属帆布间启用浓度带内（含边界）；
+        # 校验失败直接抛错，不会写入任何记录（无半插入）。
+        roll = attrs.get("roll") or getattr(self.instance, "roll", None)
+        resin_pct = attrs.get("resin_pct", getattr(self.instance, "resin_pct", None))
+        if roll is not None and resin_pct is not None:
+            ok, msg = check_resin_pct_in_band(roll.loft, resin_pct)
+            if not ok:
+                raise serializers.ValidationError({"resinPct": msg})
+        return attrs
+
+
+class ResinBandSerializer(serializers.ModelSerializer):
+    loftId = serializers.PrimaryKeyRelatedField(source="loft", queryset=Loft.objects.all())
+    loftName = serializers.CharField(source="loft.name", read_only=True)
+    lowerPct = serializers.DecimalField(source="lower_pct", max_digits=5, decimal_places=2)
+    upperPct = serializers.DecimalField(source="upper_pct", max_digits=5, decimal_places=2)
+    isActive = serializers.BooleanField(source="is_active", required=False, default=False)
+    configuredBy = serializers.CharField(source="configured_by.username", read_only=True)
+
+    class Meta:
+        model = ResinBand
+        fields = (
+            "id",
+            "loftId",
+            "loftName",
+            "lowerPct",
+            "upperPct",
+            "isActive",
+            "configuredBy",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "loftName", "configuredBy", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        lower = attrs.get("lower_pct", getattr(self.instance, "lower_pct", None))
+        upper = attrs.get("upper_pct", getattr(self.instance, "upper_pct", None))
+        if lower is not None and lower <= 0:
+            raise serializers.ValidationError({"lowerPct": "下限百分必须为正数"})
+        if upper is not None and upper <= 0:
+            raise serializers.ValidationError({"upperPct": "上限百分必须为正数"})
+        if lower is not None and upper is not None and lower >= upper:
+            raise serializers.ValidationError({"upperPct": "下限百分必须小于上限百分"})
+        return attrs

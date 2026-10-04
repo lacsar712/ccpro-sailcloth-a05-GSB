@@ -181,6 +181,35 @@ th { background: var(--canvas-deep); color: var(--navy); }
 .badge-raw { background: #e8eef5; color: #16324f; }
 .badge-dipping { background: #f3e6c4; color: #6b4f12; }
 .badge-cured { background: #d9ebe1; color: #2f6f4e; }
+.badge-band-on { background: #d9ebe1; color: #2f6f4e; }
+.badge-band-off { background: #eee4d4; color: #7a6a4a; }
+
+.band-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #d9ebe1;
+  color: #2f6f4e;
+  border: 1px solid #bcd8c8;
+}
+.band-hint-warn {
+  background: #f6e3e3;
+  color: var(--danger);
+  border-color: #e3c0c0;
+}
+.band-actions {
+  display: flex;
+  gap: 8px;
+}
+.check-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+.check-label input { min-width: 0; }
 
 .login-wrap {
   min-height: 100vh;

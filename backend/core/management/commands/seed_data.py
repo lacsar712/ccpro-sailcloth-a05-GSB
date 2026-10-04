@@ -1,11 +1,9 @@
-from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
-from core.models import ClothRoll, DipRun, Loft
+from core.models import ClothRoll, Loft, ResinBand
 
 User = get_user_model()
 
@@ -51,45 +49,19 @@ class Command(BaseCommand):
             location="港区二号库",
             notes="浸渍防水台示范 loft",
         )
-        r1 = ClothRoll.objects.create(
-            loft=loft, roll_code="R-01", status=ClothRoll.STATUS_DIPPING, fabric_weight_gsm=420
+        ClothRoll.objects.create(
+            loft=loft, roll_code="R-01", status=ClothRoll.STATUS_RAW, fabric_weight_gsm=380
         )
-        r2 = ClothRoll.objects.create(
-            loft=loft, roll_code="R-02", status=ClothRoll.STATUS_RAW, fabric_weight_gsm=380
-        )
-        r3 = ClothRoll.objects.create(
-            loft=loft, roll_code="R-03", status=ClothRoll.STATUS_CURED, fabric_weight_gsm=450
-        )
-
-        now = timezone.now()
-        DipRun.objects.bulk_create(
-            [
-                DipRun(
-                    roll=r1,
-                    started_at=now - timedelta(hours=8),
-                    resin_pct=Decimal("28.50"),
-                    cure_hours=None,
-                    notes="固化计时中",
-                ),
-                DipRun(
-                    roll=r2,
-                    started_at=now - timedelta(hours=1),
-                    resin_pct=Decimal("26.00"),
-                    cure_hours=Decimal("4.00"),
-                    notes="时长不足，不可标 cured",
-                ),
-                DipRun(
-                    roll=r3,
-                    started_at=now - timedelta(days=2),
-                    resin_pct=Decimal("30.00"),
-                    cure_hours=Decimal("14.50"),
-                    notes="已完成固化",
-                ),
-            ]
+        ResinBand.objects.create(
+            loft=loft,
+            lower_pct=Decimal("20.00"),
+            upper_pct=Decimal("30.00"),
+            is_active=True,
+            configured_by=admin,
         )
         self.stdout.write(
             self.style.SUCCESS(
                 f"种子完成：帆布间 {Loft.objects.count()}，布卷 {ClothRoll.objects.count()}，"
-                f"浸渍 {DipRun.objects.count()}"
+                f"浓度带 {ResinBand.objects.count()}（启用 20%–30%）"
             )
         )

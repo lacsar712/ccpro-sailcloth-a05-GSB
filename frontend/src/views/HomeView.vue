@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
+import { errText } from '../errors'
 
 const lofts = ref([])
 const rolls = ref([])
 const dips = ref([])
+const bands = ref([])
 const error = ref('')
 const panelError = ref('')
 const selectedId = ref(null)
@@ -27,6 +29,13 @@ function localNow() {
 
 const selected = computed(() => rolls.value.find((r) => r.id === selectedId.value) || null)
 
+const selectedBand = computed(() => {
+  if (!selected.value) return null
+  return (
+    bands.value.find((b) => b.loftId === selected.value.loftId && b.isActive) || null
+  )
+})
+
 const rollsByLoft = computed(() => {
   return lofts.value.map((loft) => ({
     loft,
@@ -44,14 +53,16 @@ const recentFeed = computed(() => dips.value.slice(0, 12))
 async function load() {
   error.value = ''
   try {
-    const [l, r, d] = await Promise.all([
+    const [l, r, d, b] = await Promise.all([
       api.get('/lofts/'),
       api.get('/rolls/'),
       api.get('/dips/'),
+      api.get('/bands/'),
     ])
     lofts.value = l.data.results || l.data
     rolls.value = r.data.results || r.data
     dips.value = d.data.results || d.data
+    bands.value = b.data.results || b.data
   } catch {
     error.value = '晾晒架加载失败'
   }
@@ -79,11 +90,10 @@ async function setStatus(status) {
     await api.patch(`/rolls/${selected.value.id}/`, { status })
     await load()
   } catch (e) {
-    const data = e.response?.data
-    panelError.value =
-      data?.status?.[0] ||
-      data?.detail ||
+    panelError.value = errText(
+      e.response?.data,
       '状态更新失败（标「已固化」需最近浸渍固化时长 ≥ 12 小时）'
+    )
   } finally {
     panelBusy.value = false
   }
@@ -116,10 +126,7 @@ async function logDip() {
     dipForm.startedAt = localNow()
     await load()
   } catch (e) {
-    panelError.value =
-      e.response?.data?.detail ||
-      JSON.stringify(e.response?.data) ||
-      '登记浸渍失败'
+    panelError.value = errText(e.response?.data, '登记浸渍失败')
   } finally {
     panelBusy.value = false
   }
@@ -133,7 +140,7 @@ onMounted(load)
     <header class="rack-head">
       <div>
         <h1>帆布间晾晒架</h1>
-        <p class="sub">按帆布间挂卷；点选布卷登记浸渍或标固化。固化规则：最近浸渍时长 ≥ 12 小时。</p>
+        <p class="sub">按帆布间挂卷；点选布卷登记浸渍或标固化。浸渍树脂百分比须落在该间启用浓度带内；固化规则：最近浸渍时长 ≥ 12 小时。</p>
       </div>
       <button class="btn secondary" type="button" @click="load">刷新架面</button>
     </header>
@@ -242,6 +249,12 @@ onMounted(load)
 
       <form class="drawer-form" @submit.prevent="logDip">
         <h3>登记浸渍</h3>
+        <p v-if="selectedBand" class="band-hint">
+          该间启用浓度带：{{ selectedBand.lowerPct }}% – {{ selectedBand.upperPct }}%（含边界）
+        </p>
+        <p v-else class="band-hint band-hint-warn">
+          该间暂无启用中的浓度带，登记浸渍将被挡住
+        </p>
         <label>开始时间
           <input v-model="dipForm.startedAt" type="datetime-local" required />
         </label>
